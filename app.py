@@ -1,5 +1,5 @@
 import os
-import json
+import asyncio
 import logging
 from datetime import datetime
 from flask import Flask, request
@@ -9,10 +9,8 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 logging.basicConfig(level=logging.INFO)
 app = Flask(__name__)
 
-# Токен бота (можно оставить так, но лучше через переменную окружения)
 TOKEN = "8649027781:AAGfMeKFm8xcaOhZ8J8Xo4Wn220Y2zn1cgM"
 
-# Данные о магазинах
 STORES = {
     "rossiyskaya": {
         "name": "O'pen на Российской",
@@ -82,10 +80,9 @@ def send_to_admin(bot, user_id, user_name, order_data):
 """
     try:
         bot.send_message(chat_id=admin_chat_id, text=message, parse_mode="Markdown")
-        logging.info(f"Заказ отправлен администратору {store_name_for_admin}")
         return True
     except Exception as e:
-        logging.error(f"Ошибка отправки админу {store_name_for_admin}: {e}")
+        logging.error(f"Ошибка отправки: {e}")
         return False
 
 def get_all_stores_map_url():
@@ -134,8 +131,7 @@ async def show_stores_map(update, context):
     ])
     await query.edit_message_text(
         f"🗺️ *Расположение магазинов:*\n\n{stores_text}\n\n"
-        f"[Открыть карту]({map_url})\n\n"
-        f"Выберите магазин в меню ниже, чтобы сделать заказ.",
+        f"[Открыть карту]({map_url})",
         parse_mode="Markdown",
         reply_markup=get_main_keyboard()
     )
@@ -157,7 +153,7 @@ async def store_selection(update, context):
     await query.edit_message_text(
         f"✅ *Выбран магазин:* {STORES[store_code]['name']}\n\n"
         f"📍 *Адрес:* {STORES[store_code]['address']}\n\n"
-        f"Загрузите файлы для печати. Когда закончите, нажмите /done",
+        f"Загрузите файлы. Когда закончите, нажмите /done",
         parse_mode="Markdown",
         reply_markup=location_keyboard
     )
@@ -170,8 +166,7 @@ async def show_single_location(update, context):
     store = STORES[store_code]
     await query.edit_message_text(
         f"📍 *{store['name']} на карте:*\n\n"
-        f"[Открыть в Яндекс.Картах]({map_url})\n\n"
-        f"*Адрес:*\n{store['address']}\n{store['area']}",
+        f"[Открыть в Яндекс.Картах]({map_url})",
         parse_mode="Markdown"
     )
 
@@ -188,20 +183,17 @@ async def handle_file(update, context):
         file_name = f"photo_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
     orders[user_id]["files"].append(file_name)
     await update.message.reply_text(
-        f"✅ Файл *{file_name}* получен!\n"
-        f"Всего загружено: {len(orders[user_id]['files'])}.\n"
-        f"Нажмите /done, когда закончите.",
+        f"✅ Файл *{file_name}* получен! Всего: {len(orders[user_id]['files'])}.\nНажмите /done",
         parse_mode="Markdown"
     )
 
 async def done_upload(update, context):
     user_id = update.effective_user.id
     if user_id not in orders or "files" not in orders[user_id] or len(orders[user_id]["files"]) == 0:
-        await update.message.reply_text("❌ Вы ещё не загрузили ни одного файла.")
+        await update.message.reply_text("❌ Нет файлов.")
         return
     await update.message.reply_text(
-        "📝 Теперь напишите *комментарий* к заказу.\n\n"
-        "Пример: цветная печать, 2 экземпляра, скрепить",
+        "📝 Напишите *комментарий* к заказу.\nПример: цветная печать, 2 экземпляра",
         parse_mode="Markdown"
     )
     context.user_data["awaiting_comment"] = True
@@ -211,9 +203,7 @@ async def handle_comment(update, context):
     comment = update.message.text
     orders[user_id]["comment"] = comment
     await update.message.reply_text(
-        f"💬 *Комментарий сохранён:*\n{comment}\n\n"
-        f"⏰ Теперь напишите *время получения*.\n"
-        f"Пример: *сегодня 18:30* или *завтра 14:00*",
+        f"💬 Комментарий сохранён.\n\n⏰ Напишите *время получения*.\nПример: сегодня 18:30",
         parse_mode="Markdown"
     )
     context.user_data["awaiting_time"] = True
@@ -247,7 +237,6 @@ async def confirm_order(update, context):
     if query.data == "confirm":
         order_data = orders.get(user_id, {})
         success = send_to_admin(context.bot, user_id, user_name, order_data)
-        
         if success:
             store_code = order_data.get('store', 'rossiyskaya')
             await query.edit_message_text(
@@ -255,21 +244,14 @@ async def confirm_order(update, context):
                 f"Приходите в {order_data.get('pickup_time')} по адресу:\n"
                 f"{order_data.get('store_address')}\n\n"
                 f"📍 [Показать на карте]({get_single_store_map_url(store_code)})\n\n"
-                f"Спасибо, что выбрали OPEN! 🖨️",
+                f"Спасибо за заказ! 🖨️",
                 parse_mode="Markdown"
             )
         else:
-            await query.edit_message_text(
-                "❌ Произошла ошибка при отправке заказа.\n"
-                "Пожалуйста, попробуйте позже или свяжитесь с магазином."
-            )
+            await query.edit_message_text("❌ Ошибка. Попробуйте позже.")
         orders.pop(user_id, None)
-        
     elif query.data == "edit":
-        await query.edit_message_text(
-            "✏️ Чтобы изменить заказ, выполните команду /start и создайте новый заказ.\n"
-            "Старый заказ будет отменён."
-        )
+        await query.edit_message_text("✏️ Напишите /start и создайте новый заказ.")
 
 @app.route("/health")
 def health():
@@ -279,32 +261,20 @@ def health():
 def index():
     return "🤖 OPEN Print Bot работает!"
 
-def setup_webhook():
+async def setup_webhook():
     render_url = os.environ.get("RENDER_EXTERNAL_URL")
     if not render_url:
         print("⚠️ RENDER_EXTERNAL_URL не найден")
         return
     bot = Bot(token=TOKEN)
     webhook_url = f"{render_url}/webhook/{TOKEN}"
-    bot.set_webhook(webhook_url)
-    print(f"✅ Webhook установлен: {webhook_url}")
-
-def main():
-    application = Application.builder().token(TOKEN).build()
-    
-    application.add_handler(CommandHandler("start", start))
-    application.add_handler(CallbackQueryHandler(show_stores_map, pattern="^show_stores_map$"))
-    application.add_handler(CallbackQueryHandler(store_selection, pattern="^store_"))
-    application.add_handler(CallbackQueryHandler(show_single_location, pattern="^location_"))
-    application.add_handler(CallbackQueryHandler(confirm_order, pattern="^(confirm|edit)$"))
-    application.add_handler(MessageHandler(filters.Document.ALL | filters.PHOTO, handle_file))
-    application.add_handler(CommandHandler("done", done_upload))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_comment))
-    application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_pickup_time))
-    
-    setup_webhook()
-    port = int(os.environ.get("PORT", 10000))
-    app.run(host="0.0.0.0", port=port)
+    try:
+        await bot.set_webhook(webhook_url)
+        print(f"✅ Webhook установлен: {webhook_url}")
+    except Exception as e:
+        print(f"❌ Ошибка: {e}")
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(setup_webhook())
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
