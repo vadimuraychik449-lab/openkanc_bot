@@ -17,14 +17,14 @@ STORES = {
         "address": "Краснодар, Российская ул., 267/6 лит В",
         "area": "Музыкальный м-н, Прикубанский округ, Краснодар, 350024",
         "coordinates": {"lat": 45.092222, "lon": 39.007168},
-        "admin_id": os.environ.get("ADMIN_CHAT_ID_ROSSIYSKAYA", "5298565730")
+        "admin_id": os.environ.get("ADMIN_CHAT_ID_ROSSIYSKAYA")
     },
     "zhigulenko": {
         "name": "O'pen на Жигуленко",
         "address": "Краснодар, ул. Евгении Жигуленко, 25к1",
         "area": "им. Петра Метальникова м-н, Прикубанский округ, Краснодар, 350087",
         "coordinates": {"lat": 45.100637, "lon": 39.002361},
-        "admin_id": os.environ.get("ADMIN_CHAT_ID_ZHIGULENKO", "1909581955")
+        "admin_id": os.environ.get("ADMIN_CHAT_ID_ZHIGULENKO")
     }
 }
 
@@ -55,6 +55,9 @@ def edit_message(chat_id, message_id, text, reply_markup=None):
         return False
 
 def send_to_admin(admin_id, user_name, user_id, order_data):
+    if not admin_id:
+        logging.error("Admin ID is missing")
+        return False
     files_list = "\n".join([f"• {f}" for f in order_data['files']])
     message = f"""📋 *НОВЫЙ ЗАКАЗ НА ПЕЧАТЬ*
 
@@ -111,7 +114,7 @@ def get_single_store_map_url(store_code):
     address = STORES[store_code]["address"]
     return f"https://yandex.ru/maps/?pt={coords['lon']},{coords['lat']}&z=17&text={address.replace(' ', '%20')}"
 
-def process_message(chat_id, text, user_id, user_name, message_id=None):
+def process_message(chat_id, text, user_id, user_name):
     if user_id in orders:
         state = orders[user_id].get("state", "store_selected")
         
@@ -222,7 +225,7 @@ def process_callback(chat_id, callback_data, message_id, user_id, user_name):
             else:
                 text = "❌ Ошибка при отправке заказа. Попробуйте позже."
         else:
-            text = "❌ Ошибка: не указан администратор магазина."
+            text = "❌ Ошибка: не указан администратор магазина. Пожалуйста, сообщите разработчику."
         edit_message(chat_id, message_id, text)
         orders.pop(user_id, None)
         
